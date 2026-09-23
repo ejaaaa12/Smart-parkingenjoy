@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Smart Parking IoT Dashboard</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Paho MQTT -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.min.js"></script>
+  <!-- Font Inter & Lucide Icons -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    body { font-family: 'Inter', sans-serif; }
+    .glass {
+      background: rgba(255, 255, 255, 0.05);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col items-center justify-center p-4 sm:p-6 overflow-x-hidden">
+
+  <div class="w-full max-w-md glass rounded-3xl p-5 sm:p-6 shadow-2xl space-y-5 my-auto">
+    <!-- Header -->
+    <div class="flex items-center justify-between border-b border-slate-800 pb-4">
+      <div class="flex items-center space-x-3">
+        <div class="p-2.5 bg-blue-600/20 text-blue-400 rounded-2xl border border-blue-500/30">
+          <i data-lucide="car"></i>
+        </div>
+        <div>
+          <h1 class="font-bold text-base sm:text-lg leading-tight">Smart Parking</h1>
+          <p class="text-[11px] sm:text-xs text-slate-400">IoT HiveMQ Realtime System</p>
+        </div>
+      </div>
+      <!-- Connection Status Badge -->
+      <div id="status-badge" class="flex items-center space-x-2 px-3 py-1.5 rounded-full text-xs font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/20">
+        <span id="status-dot" class="w-2 h-2 rounded-full bg-rose-500 animate-pulse"></span>
+        <span id="status-text">Disconnected</span>
+      </div>
+    </div>
+
+    <!-- Main Card Display -->
+    <div class="bg-slate-900/60 rounded-2xl p-5 sm:p-6 text-center border border-slate-800/80 relative overflow-hidden">
+      <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Sisa Slot Parkir</p>
+      
+      <div class="flex justify-center items-baseline space-x-2 my-2">
+        <span id="slot-count" class="text-6xl sm:text-7xl font-extrabold tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-indigo-400">-</span>
+        <span class="text-slate-500 font-medium text-lg">/ 5</span>
+      </div>
+
+      <!-- Capacity Progress Bar -->
+      <div class="w-full bg-slate-800 rounded-full h-3 mt-4 p-0.5 overflow-hidden">
+        <div id="progress-bar" class="bg-blue-500 h-full rounded-full transition-all duration-500 ease-out" style="width: 0%"></div>
+      </div>
+      <p id="capacity-info" class="text-[11px] text-slate-400 mt-2 text-right">Kapasitas: 0% Terisi</p>
+    </div>
+
+    <!-- Activity Log -->
+    <div class="space-y-2">
+      <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider px-1">Aktivitas Terakhir</p>
+      <div class="bg-slate-900/40 rounded-xl p-4 border border-slate-800/50 flex items-center justify-between">
+        <div class="flex items-center space-x-3">
+          <div id="log-icon-bg" class="p-2 rounded-lg bg-slate-800 text-slate-400">
+            <i data-lucide="radio-tower" class="w-5 h-5"></i>
+          </div>
+          <div>
+            <p id="last-event" class="text-sm font-semibold text-slate-200">Menunggu sinyal...</p>
+            <p id="last-time" class="text-[11px] text-slate-500">Topic: smartpark/status</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Inisialisasi Lucide Icons
+    lucide.createIcons();
+
+    // MQTT Config
+    const host = "2f77e302643340f8b63d38c051743935.s1.eu.hivemq.cloud";
+    const port = 8884;
+    const topic = "smartpark/status";
+    const username = "mobcom";
+    const password = "mobcom123";
+    const maxCapacity = 5;
+
+    const clientId = "WebDash-" + Math.random().toString(16).substr(2, 8);
+    const client = new Paho.MQTT.Client(host, port, clientId);
+
+    client.onConnectionLost = function (response) {
+      const badge = document.getElementById("status-badge");
+      const dot = document.getElementById("status-dot");
+      const text = document.getElementById("status-text");
+      
+      badge.className = "flex items-center space-x-2 px-3 py-1.5 rounded-full text-xs font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/20";
+      dot.className = "w-2 h-2 rounded-full bg-rose-500 animate-pulse";
+      text.innerText = "Terputus";
+    };
+
+    client.onMessageArrived = function (message) {
+      try {
+        const data = JSON.parse(message.payloadString);
+        const slot = data.sisa_slot;
+        const status = data.status;
+
+        // Update Slot
+        document.getElementById("slot-count").innerText = slot;
+
+        // Update Progress Bar
+        const occupied = maxCapacity - slot;
+        const percentage = (occupied / maxCapacity) * 100;
+        const progressBar = document.getElementById("progress-bar");
+        
+        progressBar.style.width = percentage + "%";
+        document.getElementById("capacity-info").innerText = `Kapasitas: ${percentage}% Terisi`;
+
+        if (slot === 0) {
+          progressBar.className = "bg-rose-500 h-full rounded-full transition-all duration-500 ease-out";
+        } else {
+          progressBar.className = "bg-blue-500 h-full rounded-full transition-all duration-500 ease-out";
+        }
+
+        // Update Event Log
+        document.getElementById("last-event").innerText = status;
+        const now = new Date();
+        document.getElementById("last-time").innerText = "Update: " + now.toLocaleTimeString();
+
+      } catch (e) {
+        console.error("Parse Error:", e);
+      }
+    };
+
+    client.connect({
+      timeout: 10,
+      useSSL: true,
+      userName: username,
+      password: password,
+      onSuccess: function () {
+        const badge = document.getElementById("status-badge");
+        const dot = document.getElementById("status-dot");
+        const text = document.getElementById("status-text");
+
+        badge.className = "flex items-center space-x-2 px-3 py-1.5 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20";
+        dot.className = "w-2 h-2 rounded-full bg-emerald-400 animate-ping";
+        text.innerText = "Live";
+
+        client.subscribe(topic);
+      },
+      onFailure: function (e) {
+        console.log("Connect Failed:", e);
+      }
+    });
+  </script>
+</body>
+</html>
